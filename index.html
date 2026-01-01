@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任務挑戰系統 (升級版)</title>
+    <title>任務挑戰系統 </title>
     <style>
         :root { --main-blue: #007bff; --success-green: #28a745; --fail-red: #dc3545; --warn-orange: #fd7e14; }
         body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; padding: 20px; max-width: 600px; margin: auto; }
@@ -20,25 +20,26 @@
         
         button { border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-draw { background: var(--main-blue); color: white; width: 100%; padding: 15px; font-size: 18px; }
+        .btn-shop { background: var(--warn-orange); color: white; width: 100%; padding: 10px; font-size: 16px; margin-top: 10px; }
         .btn-ok { background: var(--success-green); color: white; margin-right: 5px; }
         .btn-no { background: var(--fail-red); color: white; }
         .btn-del { background: #666; color: white; padding: 4px 8px; font-size: 12px; }
         button:disabled { background: #ccc !important; cursor: not-allowed; }
 
-        #punishBanner { background: #fff3f3; border: 2px dashed var(--fail-red); padding: 15px; border-radius: 8px; color: var(--fail-red); text-align: center; margin-bottom: 20px; display: none; }
+        /* 懲罰列表區域 (現在改為列表顯示) */
+        #punishSection { background: #fff3f3; border: 2px dashed var(--fail-red); padding: 15px; border-radius: 8px; margin-bottom: 20px; display: none; }
+        .punish-header { color: var(--fail-red); font-weight: bold; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
 
-        /* 修改後的輸入區樣式，支援多欄位 */
         .input-area { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap;}
         .input-row { display: flex; gap: 5px; width: 100%; }
         input, select { flex-grow: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-        /* 讓數值輸入框小一點 */
         .input-small { flex-grow: 0 !important; width: 80px; } 
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 我的成長系統 (Pro)</h1>
+        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 成長系統 </h1>
         <div class="status-container">
             <div class="status-box">
                 <span class="status-num" style="color: var(--success-green);" id="scoreDisplay">0</span>
@@ -49,14 +50,21 @@
                 失敗累積
             </div>
         </div>
-        <button class="btn-draw" style="margin-top:20px;" onclick="drawTasks()">🎲 抽取今日任務</button>
+        
+        <button class="btn-shop" onclick="reduceDifficulty()">🛡️ 消耗 300 積分：降低最高懲罰倍率 1%</button>
+        
+        <button class="btn-draw" style="margin-top:10px;" onclick="drawTasks()">🎲 抽取今日任務</button>
+        <div style="text-align: center; font-size: 12px; color: #666; margin-top: 5px;">
+            (若同時存在 2 個以上未完成懲罰，抽取時所有懲罰倍率 +1%)
+        </div>
     </div>
 
-    <div id="punishBanner">
-        <h3>🚨 懲罰執行中</h3>
-        <p id="punishText" style="font-size: 18px; font-weight: bold;"></p>
-        <div id="punishDetail" style="font-size: 14px; color: #666; margin-bottom: 10px;"></div>
-        <button class="btn-ok" onclick="clearPunish()">我已完成懲罰 (重置失敗數)</button>
+    <div id="punishSection">
+        <div class="punish-header">
+            <span>🚨 未完成的懲罰</span>
+            <span id="punishCount" style="font-size: 14px;">(0)</span>
+        </div>
+        <div id="activePunishList"></div>
     </div>
 
     <div class="card">
@@ -74,7 +82,7 @@
     </div>
 
     <div class="card">
-        <h2>💀 懲罰任務庫 (累進制)</h2>
+        <h2>💀 懲罰任務庫 (累進倍率)</h2>
         <div class="input-area">
             <div class="input-row">
                 <select id="punishType" onchange="togglePunishInputs()" style="flex-grow:0; width: 100px;">
@@ -100,38 +108,56 @@
         // --- 1. 資料結構更新 ---
         
         const defaultTasks = ["喝水 500cc", "深蹲 10 下", "看書 10 分鐘"];
-        // 更新：預設懲罰改為物件格式，包含類型與基礎數值
+        // 更新：改用 addedPercent 代表累加的百分比 (例如 5 代表 +5%)
         const defaultPunishments = [
-            { type: 'count', name: '原地跳', base: 50, unit: '下', level: 0 },
-            { type: 'time', name: '平板支撐', base: 30, unit: '秒', level: 0 },
-            { type: 'other', name: '大喊我是笨蛋', base: 0, unit: '', level: 0 }
+            { type: 'count', name: '原地跳', base: 50, unit: '下', addedPercent: 0 },
+            { type: 'time', name: '平板支撐', base: 30, unit: '秒', addedPercent: 0 },
+            { type: 'other', name: '大喊我是笨蛋', base: 0, unit: '', addedPercent: 0 }
         ];
 
         let data = {
             score: parseInt(localStorage.getItem('task_score')) || 0,
             failCount: parseInt(localStorage.getItem('task_fail')) || 0,
             normalPool: JSON.parse(localStorage.getItem('task_pool_normal')) || defaultTasks,
-            // 讀取懲罰庫
             punishPool: JSON.parse(localStorage.getItem('task_pool_punish')) || defaultPunishments,
             todayTasks: JSON.parse(localStorage.getItem('task_today')) || [],
-            activePunish: localStorage.getItem('task_active_punish') || ""
+            // 更新：activePunish 改為陣列，因為可以堆疊多個懲罰
+            activePunishments: JSON.parse(localStorage.getItem('task_active_punishments')) || [] 
         };
 
-        // --- 資料遷移 (相容性處理) ---
-        // 如果使用者的舊資料是純字串陣列，將其轉換為新的物件格式，避免程式崩潰
-        if (data.punishPool.length > 0 && typeof data.punishPool[0] === 'string') {
-            data.punishPool = data.punishPool.map(str => ({
-                type: 'other', name: str, base: 0, unit: '', level: 0
-            }));
-            saveAndRender();
-        }
+        // --- 資料遷移 (相容舊版) ---
+        // 將舊的 level 欄位轉換為 addedPercent (1 level = 5%)
+        data.punishPool.forEach(p => {
+            if (p.level !== undefined) {
+                p.addedPercent = p.level * 5;
+                delete p.level;
+            }
+            if (p.addedPercent === undefined) p.addedPercent = 0;
+        });
 
         // --- 2. 核心邏輯 ---
 
         function drawTasks() {
-            if (data.activePunish) return alert("請先完成懲罰任務！");
             if (data.normalPool.length < 3) return alert("任務庫至少需要 3 個任務！");
             
+            // 邏輯變更：如果同時存在 2 個或以上未完成懲罰，所有「目前在列表中的」懲罰倍率 +1%
+            if (data.activePunishments.length >= 2) {
+                let msg = "⚠️ 累積太多懲罰！";
+                
+                // 找出目前活躍懲罰對應的庫存項目，並增加難度
+                data.activePunishments.forEach(activeP => {
+                    // 透過名稱比對回到原始庫存 (簡單起見假設名稱不重複，嚴謹應加ID)
+                    const poolItem = data.punishPool.find(p => p.name === activeP.name);
+                    if (poolItem) {
+                        poolItem.addedPercent += 1;
+                        msg += `\n[${poolItem.name}] 難度提升至 ${100 + poolItem.addedPercent}%`;
+                    }
+                });
+                alert(msg);
+                // 同步更新當前活躍列表顯示的數值 (選用，或等到重新渲染)
+            }
+
+            // 抽取每日任務 (不再被懲罰阻擋)
             const shuffled = [...data.normalPool].sort(() => 0.5 - Math.random());
             data.todayTasks = shuffled.slice(0, 3).map(cmd => ({ cmd, status: 'pending' }));
             
@@ -148,50 +174,87 @@
                 data.failCount++;
                 if (data.failCount >= 3) {
                     triggerPunish();
+                    data.failCount = 0; // 觸發後歸零重新計算
                 }
             }
             saveAndRender();
         }
 
-        // 修改：觸發懲罰邏輯 (加入數值計算)
+        // 觸發懲罰 (加入到堆疊列表)
         function triggerPunish() {
-            if (data.punishPool.length === 0) {
-                data.activePunish = "無預設懲罰，請自訂懲罰內容！";
+            if (data.punishPool.length === 0) return alert("無懲罰庫存！");
+
+            const idx = Math.floor(Math.random() * data.punishPool.length);
+            const task = data.punishPool[idx]; // 這是 Reference，修改它會影響庫存
+
+            // 1. 計算當次數值
+            let finalValue = 0;
+            let displayStr = "";
+            let multiplier = 1 + (task.addedPercent / 100);
+
+            if (task.type === 'other') {
+                displayStr = task.name;
             } else {
-                const idx = Math.floor(Math.random() * data.punishPool.length);
-                const task = data.punishPool[idx]; // 取得抽到的懲罰物件
-
-                let punishString = "";
-                
-                if (task.type === 'other') {
-                    punishString = task.name;
-                } else {
-                    // 核心公式：當前數值 = 基礎值 * (1 + 次數 * 5%)
-                    let multiplier = 1 + (task.level * 0.05);
-                    let finalValue = task.base * multiplier;
-
-                    // 數值處理：計時四捨五入，計次也建議取整
-                    finalValue = Math.round(finalValue);
-
-                    punishString = `${task.name} ${finalValue} ${task.unit}`;
-                    
-                    // 重要：增加該任務的累計等級 (level)
-                    task.level++; 
-                }
-                
-                data.activePunish = punishString;
+                finalValue = task.base * multiplier;
+                // 四捨五入
+                finalValue = Math.round(finalValue);
+                displayStr = `${task.name} ${finalValue} ${task.unit}`;
             }
-            alert("❌ 失敗三次！觸發懲罰：" + data.activePunish);
-            saveAndRender(); // 儲存更新後的 level
-        }
 
-        function clearPunish() {
-            data.activePunish = "";
-            data.failCount = 0;
+            // 2. 加入活躍懲罰列表 (儲存當下快照)
+            data.activePunishments.push({
+                name: task.name,
+                display: displayStr,
+                timestamp: new Date().getTime() // 唯一識別用
+            });
+
+            // 3. 庫存難度永久 +5% (累加)
+            task.addedPercent += 5;
+
+            alert(`❌ 失敗三次！追加懲罰：${displayStr}\n(此任務下次基礎倍率變為 ${100 + task.addedPercent}%)`);
             saveAndRender();
         }
 
-        // 修改：新增任務邏輯 (處理不同類型輸入)
+        // 完成某個懲罰
+        function completePunish(index) {
+            data.activePunishments.splice(index, 1);
+            saveAndRender();
+        }
+
+        // 新增功能：消耗積分降低難度
+        function reduceDifficulty() {
+            if (data.score < 300) return alert("積分不足！需要 300 積分。");
+            
+            // 找出倍率最高的一群 (addedPercent 最高)
+            // 先過濾出非 'other' 類型，因為 'other' 通常沒有數值倍率概念，或者倍率對其無意義
+            // 若 'other' 也有難度概念可移除 filter
+            const validPool = data.punishPool.filter(p => p.type !== 'other');
+            
+            if (validPool.length === 0) return alert("沒有可降低難度的數值型懲罰！");
+
+            // 找最大值
+            const maxPercent = Math.max(...validPool.map(p => p.addedPercent));
+            // 找出所有等於最大值的任務
+            const candidates = validPool.filter(p => p.addedPercent === maxPercent);
+            
+            // 隨機選一個
+            const target = candidates[Math.floor(Math.random() * candidates.length)];
+
+            // 下限檢查：總倍率不能低於 10% (即 addedPercent 不能低於 -90)
+            // 這裡假設初始 100% (addedPercent=0)，下限 10% 意味著 addedPercent -90
+            if (100 + target.addedPercent <= 10) {
+                return alert("該任務倍率已達下限 (10%)，無法再降低！");
+            }
+
+            // 執行扣款與降低
+            data.score -= 300;
+            target.addedPercent -= 1; // 降低 1%
+
+            alert(`🛡️ 成功！任務 [${target.name}] 的倍率降低了 1%。\n當前倍率：${100 + target.addedPercent}%`);
+            saveAndRender();
+        }
+
+        // 新增任務到庫
         function addToPool(poolType) {
             if (poolType === 'normal') {
                 const input = document.getElementById('taskInput');
@@ -199,30 +262,26 @@
                 data.normalPool.push(input.value.trim());
                 input.value = "";
             } else {
-                // 處理懲罰新增
                 const pType = document.getElementById('punishType').value;
                 const pName = document.getElementById('punishName').value.trim();
                 const pBase = parseFloat(document.getElementById('punishBase').value);
                 let pUnit = document.getElementById('punishUnit').value.trim();
 
                 if (!pName) return alert("請輸入任務名稱");
-
                 if (pType !== 'other') {
                     if (isNaN(pBase) || pBase <= 0) return alert("請輸入有效的基礎數值");
-                    if (pType === 'time') pUnit = "秒"; // 強制計時單位為秒
+                    if (pType === 'time') pUnit = "秒";
                     if (!pUnit) return alert("請輸入單位");
                 }
 
-                // 推送新的物件結構
                 data.punishPool.push({
                     type: pType,
                     name: pName,
                     base: pType === 'other' ? 0 : pBase,
                     unit: pUnit,
-                    level: 0 // 初始等級為 0
+                    addedPercent: 0 // 初始 +0%
                 });
 
-                // 清空欄位
                 document.getElementById('punishName').value = "";
                 document.getElementById('punishBase').value = "";
                 if(pType !== 'time') document.getElementById('punishUnit').value = "";
@@ -238,7 +297,6 @@
 
         // --- 3. 介面互動輔助 ---
 
-        // 切換懲罰輸入框顯示狀態
         function togglePunishInputs() {
             const type = document.getElementById('punishType').value;
             const valRow = document.getElementById('punishValueRow');
@@ -246,21 +304,21 @@
             const unitInput = document.getElementById('punishUnit');
 
             if (type === 'other') {
-                valRow.style.display = 'none'; // 隱藏數值輸入
-                btnRow.style.display = 'flex'; // 顯示大按鈕
+                valRow.style.display = 'none';
+                btnRow.style.display = 'flex';
             } else {
-                valRow.style.display = 'flex'; // 顯示數值輸入
-                btnRow.style.display = 'none'; // 隱藏大按鈕(移到數值行後面)
+                valRow.style.display = 'flex';
+                btnRow.style.display = 'none';
                 
                 if (type === 'time') {
                     unitInput.value = "秒";
-                    unitInput.disabled = true; // 計時強制鎖定單位
+                    unitInput.disabled = true;
                     unitInput.style.backgroundColor = "#eee";
                 } else {
                     unitInput.value = "";
                     unitInput.disabled = false;
                     unitInput.style.backgroundColor = "white";
-                    unitInput.placeholder = "單位 (如:下)";
+                    unitInput.placeholder = "單位";
                 }
             }
         }
@@ -273,19 +331,29 @@
             localStorage.setItem('task_pool_normal', JSON.stringify(data.normalPool));
             localStorage.setItem('task_pool_punish', JSON.stringify(data.punishPool));
             localStorage.setItem('task_today', JSON.stringify(data.todayTasks));
-            localStorage.setItem('task_active_punish', data.activePunish);
+            localStorage.setItem('task_active_punishments', JSON.stringify(data.activePunishments));
 
             document.getElementById('scoreDisplay').innerText = data.score;
             document.getElementById('failDisplay').innerText = data.failCount + " / 3";
 
-            const banner = document.getElementById('punishBanner');
-            if (data.activePunish) {
-                banner.style.display = 'block';
-                document.getElementById('punishText').innerText = data.activePunish;
+            // 渲染未完成懲罰列表
+            const punishSection = document.getElementById('punishSection');
+            const punishListDiv = document.getElementById('activePunishList');
+            document.getElementById('punishCount').innerText = `(${data.activePunishments.length})`;
+
+            if (data.activePunishments.length > 0) {
+                punishSection.style.display = 'block';
+                punishListDiv.innerHTML = data.activePunishments.map((p, i) => `
+                    <div class="item" style="border-color: #ffcccc;">
+                        <span style="font-weight:bold; color: #a00;">${p.display}</span>
+                        <button class="btn-ok" onclick="completePunish(${i})">完成</button>
+                    </div>
+                `).join('');
             } else {
-                banner.style.display = 'none';
+                punishSection.style.display = 'none';
             }
 
+            // 渲染今日任務
             const todayDiv = document.getElementById('todayList');
             if (data.todayTasks.length === 0) {
                 todayDiv.innerHTML = "尚未抽取任務";
@@ -302,11 +370,10 @@
             }
 
             renderPoolList('normalPool', 'normal');
-            renderPunishList(); // 懲罰列表有不同渲染方式
+            renderPunishList();
         }
 
         function renderPoolList(elementId, type) {
-            // 只處理一般任務，懲罰任務分開處理
             const list = data.normalPool;
             document.getElementById(elementId).innerHTML = list.map((cmd, i) => `
                 <div class="item">
@@ -316,7 +383,7 @@
             `).join('');
         }
 
-        // 專門渲染懲罰列表 (顯示等級與數值資訊)
+        // 渲染懲罰庫 (顯示倍率與基礎值)
         function renderPunishList() {
             const list = data.punishPool;
             document.getElementById('punishPool').innerHTML = list.map((item, i) => {
@@ -324,10 +391,9 @@
                 if (item.type === 'other') {
                     desc = item.name;
                 } else {
-                    // 顯示當前難度預覽
-                    const nextVal = Math.round(item.base * (1 + item.level * 0.05));
-                    // 顯示格式：深蹲 (Lv.2 - 55下)
-                    desc = `<b>${item.name}</b> <span style="color:#666; font-size:12px;">(Lv.${item.level} | 下次: ${nextVal}${item.unit})</span>`;
+                    // 計算當前倍率
+                    const currentRate = 100 + item.addedPercent;
+                    desc = `<b>${item.name}</b> <span style="color:#666; font-size:12px;">(倍率:${currentRate}% | 基礎:${item.base}${item.unit})</span>`;
                 }
 
                 return `
@@ -338,8 +404,7 @@
             `}).join('');
         }
 
-        // 初始化
-        togglePunishInputs(); // 設定初始輸入框狀態
+        togglePunishInputs();
         saveAndRender();
 
     </script>
