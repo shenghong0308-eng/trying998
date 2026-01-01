@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任務挑戰系統 (升級版)</title>
+    <style>
+        :root { --main-blue: #007bff; --success-green: #28a745; --fail-red: #dc3545; --warn-orange: #fd7e14; }
+        body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; padding: 20px; max-width: 600px; margin: auto; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        
+        .status-container { display: flex; justify-content: space-around; text-align: center; }
+        .status-box { flex: 1; }
+        .status-num { font-size: 24px; font-weight: bold; display: block; }
+        
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f1f1; }
+        .item:last-child { border-bottom: none; }
+        .task-text { flex-grow: 1; font-size: 16px; }
+        
+        button { border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-draw { background: var(--main-blue); color: white; width: 100%; padding: 15px; font-size: 18px; }
+        .btn-ok { background: var(--success-green); color: white; margin-right: 5px; }
+        .btn-no { background: var(--fail-red); color: white; }
+        .btn-del { background: #666; color: white; padding: 4px 8px; font-size: 12px; }
+        button:disabled { background: #ccc !important; cursor: not-allowed; }
+
+        #punishBanner { background: #fff3f3; border: 2px dashed var(--fail-red); padding: 15px; border-radius: 8px; color: var(--fail-red); text-align: center; margin-bottom: 20px; display: none; }
+
+        /* 修改後的輸入區樣式，支援多欄位 */
+        .input-area { display: flex; gap: 5px; margin-top: 10px; flex-wrap: wrap;}
+        .input-row { display: flex; gap: 5px; width: 100%; }
+        input, select { flex-grow: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        /* 讓數值輸入框小一點 */
+        .input-small { flex-grow: 0 !important; width: 80px; } 
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 我的成長系統 (Pro)</h1>
+        <div class="status-container">
+            <div class="status-box">
+                <span class="status-num" style="color: var(--success-green);" id="scoreDisplay">0</span>
+                累積積分
+            </div>
+            <div class="status-box">
+                <span class="status-num" style="color: var(--fail-red);" id="failDisplay">0 / 3</span>
+                失敗累積
+            </div>
+        </div>
+        <button class="btn-draw" style="margin-top:20px;" onclick="drawTasks()">🎲 抽取今日任務</button>
+    </div>
+
+    <div id="punishBanner">
+        <h3>🚨 懲罰執行中</h3>
+        <p id="punishText" style="font-size: 18px; font-weight: bold;"></p>
+        <div id="punishDetail" style="font-size: 14px; color: #666; margin-bottom: 10px;"></div>
+        <button class="btn-ok" onclick="clearPunish()">我已完成懲罰 (重置失敗數)</button>
+    </div>
+
+    <div class="card">
+        <h2>🎯 今日任務</h2>
+        <div id="todayList">點擊上方按鈕開始...</div>
+    </div>
+
+    <div class="card">
+        <h2>📚 一般任務庫</h2>
+        <div class="input-area">
+            <input type="text" id="taskInput" placeholder="輸入任務指令...">
+            <button class="btn-ok" onclick="addToPool('normal')">新增</button>
+        </div>
+        <div id="normalPool" style="margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
+    </div>
+
+    <div class="card">
+        <h2>💀 懲罰任務庫 (累進制)</h2>
+        <div class="input-area">
+            <div class="input-row">
+                <select id="punishType" onchange="togglePunishInputs()" style="flex-grow:0; width: 100px;">
+                    <option value="other">其他</option>
+                    <option value="count">計次</option>
+                    <option value="time">計時</option>
+                </select>
+                <input type="text" id="punishName" placeholder="任務名稱 (例: 深蹲)">
+            </div>
+            <div class="input-row" id="punishValueRow" style="display:none;">
+                <input type="number" id="punishBase" class="input-small" placeholder="數值">
+                <input type="text" id="punishUnit" class="input-small" placeholder="單位">
+                <button class="btn-no" onclick="addToPool('punish')">新增</button>
+            </div>
+            <div class="input-row" id="punishBtnRow">
+                <button class="btn-no" style="width: 100%;" onclick="addToPool('punish')">新增</button>
+            </div>
+        </div>
+        <div id="punishPool" style="margin-top: 10px; max-height: 200px; overflow-y: auto;"></div>
+    </div>
+
+    <script>
+        // --- 1. 資料結構更新 ---
+        
+        const defaultTasks = ["喝水 500cc", "深蹲 10 下", "看書 10 分鐘"];
+        // 更新：預設懲罰改為物件格式，包含類型與基礎數值
+        const defaultPunishments = [
+            { type: 'count', name: '原地跳', base: 50, unit: '下', level: 0 },
+            { type: 'time', name: '平板支撐', base: 30, unit: '秒', level: 0 },
+            { type: 'other', name: '大喊我是笨蛋', base: 0, unit: '', level: 0 }
+        ];
+
+        let data = {
+            score: parseInt(localStorage.getItem('task_score')) || 0,
+            failCount: parseInt(localStorage.getItem('task_fail')) || 0,
+            normalPool: JSON.parse(localStorage.getItem('task_pool_normal')) || defaultTasks,
+            // 讀取懲罰庫
+            punishPool: JSON.parse(localStorage.getItem('task_pool_punish')) || defaultPunishments,
+            todayTasks: JSON.parse(localStorage.getItem('task_today')) || [],
+            activePunish: localStorage.getItem('task_active_punish') || ""
+        };
+
+        // --- 資料遷移 (相容性處理) ---
+        // 如果使用者的舊資料是純字串陣列，將其轉換為新的物件格式，避免程式崩潰
+        if (data.punishPool.length > 0 && typeof data.punishPool[0] === 'string') {
+            data.punishPool = data.punishPool.map(str => ({
+                type: 'other', name: str, base: 0, unit: '', level: 0
+            }));
+            saveAndRender();
+        }
+
+        // --- 2. 核心邏輯 ---
+
+        function drawTasks() {
+            if (data.activePunish) return alert("請先完成懲罰任務！");
+            if (data.normalPool.length < 3) return alert("任務庫至少需要 3 個任務！");
+            
+            const shuffled = [...data.normalPool].sort(() => 0.5 - Math.random());
+            data.todayTasks = shuffled.slice(0, 3).map(cmd => ({ cmd, status: 'pending' }));
+            
+            saveAndRender();
+        }
+
+        function updateTaskStatus(index, status) {
+            if (data.todayTasks[index].status !== 'pending') return;
+            data.todayTasks[index].status = status;
+
+            if (status === 'done') {
+                data.score += 10;
+            } else {
+                data.failCount++;
+                if (data.failCount >= 3) {
+                    triggerPunish();
+                }
+            }
+            saveAndRender();
+        }
+
+        // 修改：觸發懲罰邏輯 (加入數值計算)
+        function triggerPunish() {
+            if (data.punishPool.length === 0) {
+                data.activePunish = "無預設懲罰，請自訂懲罰內容！";
+            } else {
+                const idx = Math.floor(Math.random() * data.punishPool.length);
+                const task = data.punishPool[idx]; // 取得抽到的懲罰物件
+
+                let punishString = "";
+                
+                if (task.type === 'other') {
+                    punishString = task.name;
+                } else {
+                    // 核心公式：當前數值 = 基礎值 * (1 + 次數 * 5%)
+                    let multiplier = 1 + (task.level * 0.05);
+                    let finalValue = task.base * multiplier;
+
+                    // 數值處理：計時四捨五入，計次也建議取整
+                    finalValue = Math.round(finalValue);
+
+                    punishString = `${task.name} ${finalValue} ${task.unit}`;
+                    
+                    // 重要：增加該任務的累計等級 (level)
+                    task.level++; 
+                }
+                
+                data.activePunish = punishString;
+            }
+            alert("❌ 失敗三次！觸發懲罰：" + data.activePunish);
+            saveAndRender(); // 儲存更新後的 level
+        }
+
+        function clearPunish() {
+            data.activePunish = "";
+            data.failCount = 0;
+            saveAndRender();
+        }
+
+        // 修改：新增任務邏輯 (處理不同類型輸入)
+        function addToPool(poolType) {
+            if (poolType === 'normal') {
+                const input = document.getElementById('taskInput');
+                if (!input.value.trim()) return;
+                data.normalPool.push(input.value.trim());
+                input.value = "";
+            } else {
+                // 處理懲罰新增
+                const pType = document.getElementById('punishType').value;
+                const pName = document.getElementById('punishName').value.trim();
+                const pBase = parseFloat(document.getElementById('punishBase').value);
+                let pUnit = document.getElementById('punishUnit').value.trim();
+
+                if (!pName) return alert("請輸入任務名稱");
+
+                if (pType !== 'other') {
+                    if (isNaN(pBase) || pBase <= 0) return alert("請輸入有效的基礎數值");
+                    if (pType === 'time') pUnit = "秒"; // 強制計時單位為秒
+                    if (!pUnit) return alert("請輸入單位");
+                }
+
+                // 推送新的物件結構
+                data.punishPool.push({
+                    type: pType,
+                    name: pName,
+                    base: pType === 'other' ? 0 : pBase,
+                    unit: pUnit,
+                    level: 0 // 初始等級為 0
+                });
+
+                // 清空欄位
+                document.getElementById('punishName').value = "";
+                document.getElementById('punishBase').value = "";
+                if(pType !== 'time') document.getElementById('punishUnit').value = "";
+            }
+            saveAndRender();
+        }
+
+        function deleteFromPool(type, index) {
+            if (type === 'normal') data.normalPool.splice(index, 1);
+            else data.punishPool.splice(index, 1);
+            saveAndRender();
+        }
+
+        // --- 3. 介面互動輔助 ---
+
+        // 切換懲罰輸入框顯示狀態
+        function togglePunishInputs() {
+            const type = document.getElementById('punishType').value;
+            const valRow = document.getElementById('punishValueRow');
+            const btnRow = document.getElementById('punishBtnRow');
+            const unitInput = document.getElementById('punishUnit');
+
+            if (type === 'other') {
+                valRow.style.display = 'none'; // 隱藏數值輸入
+                btnRow.style.display = 'flex'; // 顯示大按鈕
+            } else {
+                valRow.style.display = 'flex'; // 顯示數值輸入
+                btnRow.style.display = 'none'; // 隱藏大按鈕(移到數值行後面)
+                
+                if (type === 'time') {
+                    unitInput.value = "秒";
+                    unitInput.disabled = true; // 計時強制鎖定單位
+                    unitInput.style.backgroundColor = "#eee";
+                } else {
+                    unitInput.value = "";
+                    unitInput.disabled = false;
+                    unitInput.style.backgroundColor = "white";
+                    unitInput.placeholder = "單位 (如:下)";
+                }
+            }
+        }
+
+        // --- 4. 渲染與儲存 ---
+
+        function saveAndRender() {
+            localStorage.setItem('task_score', data.score);
+            localStorage.setItem('task_fail', data.failCount);
+            localStorage.setItem('task_pool_normal', JSON.stringify(data.normalPool));
+            localStorage.setItem('task_pool_punish', JSON.stringify(data.punishPool));
+            localStorage.setItem('task_today', JSON.stringify(data.todayTasks));
+            localStorage.setItem('task_active_punish', data.activePunish);
+
+            document.getElementById('scoreDisplay').innerText = data.score;
+            document.getElementById('failDisplay').innerText = data.failCount + " / 3";
+
+            const banner = document.getElementById('punishBanner');
+            if (data.activePunish) {
+                banner.style.display = 'block';
+                document.getElementById('punishText').innerText = data.activePunish;
+            } else {
+                banner.style.display = 'none';
+            }
+
+            const todayDiv = document.getElementById('todayList');
+            if (data.todayTasks.length === 0) {
+                todayDiv.innerHTML = "尚未抽取任務";
+            } else {
+                todayDiv.innerHTML = data.todayTasks.map((t, i) => `
+                    <div class="item">
+                        <span class="task-text" style="${t.status !== 'pending' ? 'text-decoration: line-through; color: #999;' : ''}">${t.cmd}</span>
+                        ${t.status === 'pending' ? `
+                            <button class="btn-ok" onclick="updateTaskStatus(${i}, 'done')">完成</button>
+                            <button class="btn-no" onclick="updateTaskStatus(${i}, 'fail')">失敗</button>
+                        ` : `<span>${t.status === 'done' ? '✅' : '❌'}</span>`}
+                    </div>
+                `).join('');
+            }
+
+            renderPoolList('normalPool', 'normal');
+            renderPunishList(); // 懲罰列表有不同渲染方式
+        }
+
+        function renderPoolList(elementId, type) {
+            // 只處理一般任務，懲罰任務分開處理
+            const list = data.normalPool;
+            document.getElementById(elementId).innerHTML = list.map((cmd, i) => `
+                <div class="item">
+                    <span style="font-size: 14px;">${cmd}</span>
+                    <button class="btn-del" onclick="deleteFromPool('${type}', ${i})">刪除</button>
+                </div>
+            `).join('');
+        }
+
+        // 專門渲染懲罰列表 (顯示等級與數值資訊)
+        function renderPunishList() {
+            const list = data.punishPool;
+            document.getElementById('punishPool').innerHTML = list.map((item, i) => {
+                let desc = "";
+                if (item.type === 'other') {
+                    desc = item.name;
+                } else {
+                    // 顯示當前難度預覽
+                    const nextVal = Math.round(item.base * (1 + item.level * 0.05));
+                    // 顯示格式：深蹲 (Lv.2 - 55下)
+                    desc = `<b>${item.name}</b> <span style="color:#666; font-size:12px;">(Lv.${item.level} | 下次: ${nextVal}${item.unit})</span>`;
+                }
+
+                return `
+                <div class="item">
+                    <span style="font-size: 14px;">${desc}</span>
+                    <button class="btn-del" onclick="deleteFromPool('punish', ${i})">刪除</button>
+                </div>
+            `}).join('');
+        }
+
+        // 初始化
+        togglePunishInputs(); // 設定初始輸入框狀態
+        saveAndRender();
+
+    </script>
+</body>
+</html>
