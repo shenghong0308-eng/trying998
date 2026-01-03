@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任務挑戰系統</title>
+    <title>任務挑戰系統 (地獄疊加版)</title>
     <style>
-        :root { --main-blue: #007bff; --success-green: #28a745; --fail-red: #dc3545; --warn-orange: #fd7e14; --dark-grey: #343a40; }
+        :root { --main-blue: #007bff; --success-green: #28a745; --fail-red: #dc3545; --warn-orange: #fd7e14; --dark-grey: #343a40; --hell-purple: #4a0072; }
         body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; padding: 20px; max-width: 600px; margin: auto; }
         .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h2 { margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
@@ -18,12 +18,17 @@
         .item:last-child { border-bottom: none; }
         .task-text { flex-grow: 1; font-size: 16px; }
         
+        /* 地獄任務特殊樣式 */
+        .item-hell { background-color: #f3e5f5; border: 2px solid var(--hell-purple); border-radius: 8px; padding: 10px; margin-bottom: 5px; }
+        .item-hell .task-text { color: var(--hell-purple); font-weight: bold; }
+
         button { border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-draw { background: var(--main-blue); color: white; width: 100%; padding: 15px; font-size: 18px; }
         .btn-shop { background: var(--warn-orange); color: white; width: 100%; padding: 10px; font-size: 16px; margin-top: 10px; }
         .btn-ok { background: var(--success-green); color: white; margin-right: 5px; }
         .btn-no { background: var(--fail-red); color: white; }
         .btn-del { background: #666; color: white; padding: 4px 8px; font-size: 12px; }
+        .btn-hell { background: var(--hell-purple); color: white; }
         .btn-reset { background: var(--dark-grey); color: white; width: 100%; padding: 10px; margin-top: 30px; opacity: 0.8; }
         .btn-reset:hover { opacity: 1; background: black; }
         button:disabled { background: #ccc !important; cursor: not-allowed; }
@@ -35,15 +40,12 @@
         .input-row { display: flex; gap: 5px; width: 100%; }
         input, select { flex-grow: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
         .input-small { flex-grow: 0 !important; width: 80px; } 
-        
-        /* 詛咒狀態提示 */
-        .curse-badge { background: #6f42c1; color: white; font-size: 12px; padding: 3px 6px; border-radius: 4px; display: inline-block; margin-left: 5px; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 成長系統</h1>
+        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 成長系統 (地獄疊加版)</h1>
         <div class="status-container">
             <div class="status-box">
                 <span class="status-num" style="color: var(--success-green);" id="scoreDisplay">0</span>
@@ -52,6 +54,10 @@
             <div class="status-box">
                 <span class="status-num" style="color: var(--fail-red);" id="failDisplay">0 / 3</span>
                 失敗累積
+            </div>
+            <div class="status-box">
+                <span class="status-num" style="color: var(--hell-purple);" id="hellProbDisplay">0%</span>
+                地獄機率
             </div>
         </div>
         
@@ -82,6 +88,16 @@
             <button class="btn-ok" onclick="addToPool('normal')">新增</button>
         </div>
         <div id="normalPool" style="margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
+    </div>
+
+    <div class="card" style="border: 1px solid var(--hell-purple);">
+        <h2 style="color: var(--hell-purple); border-color: var(--hell-purple);">👿 地獄任務庫 (高風險)</h2>
+        <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">獎勵：50積分 | 失敗：+30 失敗數 (即 10 個懲罰)</p>
+        <div class="input-area">
+            <input type="text" id="hellInput" placeholder="輸入地獄任務 (例: 跑 3000 公尺)">
+            <button class="btn-hell" onclick="addToPool('hell')">新增</button>
+        </div>
+        <div id="hellPool" style="margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
     </div>
 
     <div class="card">
@@ -115,6 +131,7 @@
         // --- 1. 資料結構 ---
         
         const defaultTasks = ["喝水 500cc", "深蹲 10 下", "看書 10 分鐘"];
+        const defaultHellTasks = ["全速跑 1 公里", "斷食 16 小時", "背誦一首英文詩"];
         const defaultPunishments = [
             { type: 'count', name: '原地跳', base: 50, unit: '下', addedPercent: 0 },
             { type: 'time', name: '平板支撐', base: 30, unit: '秒', addedPercent: 0 },
@@ -126,27 +143,31 @@
             failCount: parseInt(localStorage.getItem('task_fail')) || 0,
             normalPool: JSON.parse(localStorage.getItem('task_pool_normal')) || defaultTasks,
             punishPool: JSON.parse(localStorage.getItem('task_pool_punish')) || defaultPunishments,
+            hellPool: JSON.parse(localStorage.getItem('task_pool_hell')) || defaultHellTasks,
+            hellProbability: parseFloat(localStorage.getItem('task_hell_prob')) || 0,
             todayTasks: JSON.parse(localStorage.getItem('task_today')) || [],
             activePunishments: JSON.parse(localStorage.getItem('task_active_punishments')) || [],
-            // 新增：強制下次只能抽數值型懲罰的標記
             forceNumericNext: JSON.parse(localStorage.getItem('task_force_numeric')) || false
         };
 
-        // --- 資料遷移 ---
+        // 資料相容性修正
         data.punishPool.forEach(p => {
-            if (p.level !== undefined) {
-                p.addedPercent = p.level * 5;
-                delete p.level;
-            }
+            if (p.level !== undefined) { p.addedPercent = p.level * 5; delete p.level; }
             if (p.addedPercent === undefined) p.addedPercent = 0;
         });
 
         // --- 2. 核心邏輯 ---
 
         function drawTasks() {
-            if (data.normalPool.length < 3) return alert("任務庫至少需要 3 個任務！");
+            // 防刷機制：檢查是否所有任務都已處理 (done 或 fail)
+            const hasPending = data.todayTasks.some(t => t.status === 'pending');
+            if (hasPending) {
+                return alert("⛔ 禁止重刷！\n你還有未完成的任務，必須全部設為【完成】或【失敗】後才能抽取新任務。");
+            }
+
+            if (data.normalPool.length < 3) return alert("一般任務庫至少需要 3 個任務！");
             
-            // 檢查是否堆積太多懲罰
+            // 堆疊懲罰警告
             if (data.activePunishments.length >= 2) {
                 let msg = "⚠️ 累積太多懲罰！";
                 data.activePunishments.forEach(activeP => {
@@ -159,101 +180,124 @@
                 alert(msg);
             }
 
+            // --- 1. 先抽取一般的普通任務 ---
             const shuffled = [...data.normalPool].sort(() => 0.5 - Math.random());
-            data.todayTasks = shuffled.slice(0, 3).map(cmd => ({ cmd, status: 'pending' }));
+            let newTasks = shuffled.slice(0, 3).map(cmd => ({ 
+                cmd, 
+                status: 'pending', 
+                type: 'normal' 
+            }));
+
+            // --- 2. 判定是否觸發地獄任務 (疊加模式) ---
+            const rand = Math.random() * 100; // 0 ~ 99.99
+            if (data.hellPool.length > 0 && rand < data.hellProbability) {
+                
+                const hellIdx = Math.floor(Math.random() * data.hellPool.length);
+                const hellTaskCmd = data.hellPool[hellIdx];
+                
+                // 建立地獄任務物件
+                const hellTask = { 
+                    cmd: hellTaskCmd, 
+                    status: 'pending', 
+                    type: 'hell'
+                };
+                
+                // 插入到任務列表的最前方 (unshift)
+                newTasks.unshift(hellTask);
+                
+                alert(`👿 厄運降臨！\n除了今日任務外，你還額外抽到了地獄任務：\n【${hellTaskCmd}】\n\n(地獄機率重置為 0%)`);
+                data.hellProbability = 0; // 重置機率
+            }
             
+            // 更新今日任務列表
+            data.todayTasks = newTasks;
             saveAndRender();
         }
 
         function updateTaskStatus(index, status) {
             if (data.todayTasks[index].status !== 'pending') return;
-            data.todayTasks[index].status = status;
+            const task = data.todayTasks[index];
+            task.status = status;
 
             if (status === 'done') {
-                data.score += 10;
+                data.score += (task.type === 'hell' ? 50 : 10);
             } else {
-                data.failCount++;
-                if (data.failCount >= 3) {
-                    triggerPunish();
-                    data.failCount = 0; 
+                // --- 失敗處理邏輯 ---
+                if (task.type === 'hell') {
+                    data.failCount += 30; // 地獄失敗 +30
+                    alert("💀 地獄任務失敗！\n失敗計數 +30 (將觸發 10 個懲罰)");
+                } else {
+                    data.failCount++;
+                    // 一般任務失敗，增加地獄機率
+                    data.hellProbability += 1; 
+                }
+
+                // 檢查是否觸發懲罰
+                let triggeredCount = 0;
+                while (data.failCount >= 3) {
+                    triggerPunish(true); // 靜默模式
+                    data.failCount -= 3;
+                    triggeredCount++;
+                }
+
+                if (triggeredCount > 0) {
+                    alert(`❌ 已觸發 ${triggeredCount} 個懲罰任務！\n請查看上方未完成懲罰列表。`);
                 }
             }
             saveAndRender();
         }
 
-        // 修改：觸發懲罰邏輯 (處理「其他」類型的副作用)
-        function triggerPunish() {
+        function triggerPunish(silent = false) {
             if (data.punishPool.length === 0) return alert("無懲罰庫存！");
 
             let candidatePool = [];
-
-            // 1. 根據標記決定候選池
             if (data.forceNumericNext) {
-                // 如果被鎖定，只能抽非 'other'
                 candidatePool = data.punishPool.filter(p => p.type !== 'other');
-                // 防呆：如果過濾完沒東西抽 (例如使用者刪光了數值型懲罰)，則被迫使用全庫
-                if (candidatePool.length === 0) {
-                    candidatePool = data.punishPool;
-                }
+                if (candidatePool.length === 0) candidatePool = data.punishPool;
             } else {
                 candidatePool = data.punishPool;
             }
 
-            // 2. 隨機抽取
             const idx = Math.floor(Math.random() * candidatePool.length);
             const task = candidatePool[idx]; 
 
-            // 3. 準備顯示內容
             let finalValue = 0;
             let displayStr = "";
             let alertMsg = "";
 
             if (task.type === 'other') {
-                // --- 抽到「其他」類別 ---
                 displayStr = task.name;
-                
-                // 觸發副作用：找出倍率最低的數值任務 +5%
                 const numericTasks = data.punishPool.filter(p => p.type !== 'other');
                 if (numericTasks.length > 0) {
-                    // 找最小值
                     const minPercent = Math.min(...numericTasks.map(t => t.addedPercent));
                     const targets = numericTasks.filter(t => t.addedPercent === minPercent);
-                    // 隨機選一個
                     const buffTarget = targets[Math.floor(Math.random() * targets.length)];
-                    
                     buffTarget.addedPercent += 5;
-                    alertMsg = `\n💀 觸發詛咒：[${buffTarget.name}] 倍率 +5%！\n(下次懲罰必定為計時或計次任務)`;
+                    if (!silent) alertMsg = `\n💀 觸發詛咒：[${buffTarget.name}] 倍率 +5%！`;
                 }
-                
-                // 設定下次鎖定
                 data.forceNumericNext = true;
-
             } else {
-                // --- 抽到「計時/計次」類別 ---
                 let multiplier = 1 + (task.addedPercent / 100);
                 finalValue = Math.round(task.base * multiplier);
                 displayStr = `${task.name} ${finalValue} ${task.unit}`;
                 
-                // 自身難度增加
                 task.addedPercent += 5;
-                alertMsg = `\n(此任務下次基礎倍率變為 ${100 + task.addedPercent}%)`;
+                if (!silent) alertMsg = `\n(此任務下次基礎倍率變為 ${100 + task.addedPercent}%)`;
 
-                // 解除鎖定 (如果之前有鎖定的話)
                 if (data.forceNumericNext) {
                     data.forceNumericNext = false;
-                    alertMsg += "\n✨ 詛咒解除：下次可抽取所有類型懲罰。";
                 }
             }
 
-            // 4. 加入活躍列表
             data.activePunishments.push({
                 name: task.name,
                 display: displayStr,
                 timestamp: new Date().getTime()
             });
 
-            alert(`❌ 失敗三次！追加懲罰：${displayStr}${alertMsg}`);
-            saveAndRender();
+            if (!silent) {
+                alert(`❌ 失敗三次！追加懲罰：${displayStr}${alertMsg}`);
+            }
         }
 
         function completePunish(index) {
@@ -279,7 +323,6 @@
             saveAndRender();
         }
 
-        // 新增：重置系統
         function resetSystem() {
             if (confirm("⚠️ 警告：確定要重置所有資料嗎？\n所有的積分、任務庫、懲罰倍率都會消失！")) {
                 if (confirm("⚠️ 再次確認：這項操作無法復原。\n\n真的要刪除並重新開始嗎？")) {
@@ -294,6 +337,11 @@
                 const input = document.getElementById('taskInput');
                 if (!input.value.trim()) return;
                 data.normalPool.push(input.value.trim());
+                input.value = "";
+            } else if (poolType === 'hell') {
+                const input = document.getElementById('hellInput');
+                if (!input.value.trim()) return;
+                data.hellPool.push(input.value.trim());
                 input.value = "";
             } else {
                 const pType = document.getElementById('punishType').value;
@@ -315,7 +363,6 @@
                     unit: pUnit,
                     addedPercent: 0
                 });
-
                 document.getElementById('punishName').value = "";
                 document.getElementById('punishBase').value = "";
                 if(pType !== 'time') document.getElementById('punishUnit').value = "";
@@ -325,6 +372,7 @@
 
         function deleteFromPool(type, index) {
             if (type === 'normal') data.normalPool.splice(index, 1);
+            else if (type === 'hell') data.hellPool.splice(index, 1);
             else data.punishPool.splice(index, 1);
             saveAndRender();
         }
@@ -360,15 +408,17 @@
             localStorage.setItem('task_score', data.score);
             localStorage.setItem('task_fail', data.failCount);
             localStorage.setItem('task_pool_normal', JSON.stringify(data.normalPool));
+            localStorage.setItem('task_pool_hell', JSON.stringify(data.hellPool));
             localStorage.setItem('task_pool_punish', JSON.stringify(data.punishPool));
             localStorage.setItem('task_today', JSON.stringify(data.todayTasks));
             localStorage.setItem('task_active_punishments', JSON.stringify(data.activePunishments));
             localStorage.setItem('task_force_numeric', JSON.stringify(data.forceNumericNext));
+            localStorage.setItem('task_hell_prob', data.hellProbability);
 
             document.getElementById('scoreDisplay').innerText = data.score;
             document.getElementById('failDisplay').innerText = data.failCount + " / 3";
+            document.getElementById('hellProbDisplay').innerText = data.hellProbability + "%";
 
-            // 狀態提示 (顯示目前是否有詛咒鎖定)
             const statusMsg = document.getElementById('statusMessage');
             if (data.forceNumericNext) {
                 statusMsg.innerHTML = "⚡ 詛咒生效中：下次懲罰限定為【計時】或【計次】任務";
@@ -376,7 +426,6 @@
                 statusMsg.innerHTML = "";
             }
 
-            // 渲染未完成懲罰
             const punishSection = document.getElementById('punishSection');
             const punishListDiv = document.getElementById('activePunishList');
             document.getElementById('punishCount').innerText = `(${data.activePunishments.length})`;
@@ -393,28 +442,35 @@
                 punishSection.style.display = 'none';
             }
 
-            // 渲染今日任務
             const todayDiv = document.getElementById('todayList');
             if (data.todayTasks.length === 0) {
                 todayDiv.innerHTML = "尚未抽取任務";
             } else {
-                todayDiv.innerHTML = data.todayTasks.map((t, i) => `
-                    <div class="item">
-                        <span class="task-text" style="${t.status !== 'pending' ? 'text-decoration: line-through; color: #999;' : ''}">${t.cmd}</span>
+                todayDiv.innerHTML = data.todayTasks.map((t, i) => {
+                    const isHell = t.type === 'hell';
+                    const itemClass = isHell ? 'item item-hell' : 'item';
+                    const icon = isHell ? '👿' : '';
+                    
+                    return `
+                    <div class="${itemClass}">
+                        <span class="task-text" style="${t.status !== 'pending' ? 'text-decoration: line-through; color: #999;' : ''}">
+                            ${icon} ${t.cmd}
+                        </span>
                         ${t.status === 'pending' ? `
                             <button class="btn-ok" onclick="updateTaskStatus(${i}, 'done')">完成</button>
                             <button class="btn-no" onclick="updateTaskStatus(${i}, 'fail')">失敗</button>
                         ` : `<span>${t.status === 'done' ? '✅' : '❌'}</span>`}
                     </div>
-                `).join('');
+                `}).join('');
             }
 
             renderPoolList('normalPool', 'normal');
+            renderPoolList('hellPool', 'hell');
             renderPunishList();
         }
 
         function renderPoolList(elementId, type) {
-            const list = data.normalPool;
+            const list = type === 'normal' ? data.normalPool : data.hellPool;
             document.getElementById(elementId).innerHTML = list.map((cmd, i) => `
                 <div class="item">
                     <span style="font-size: 14px;">${cmd}</span>
