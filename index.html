@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任務挑戰系統 (地獄疊加版)</title>
+    <title>任務挑戰系統 </title>
     <style>
         :root { --main-blue: #007bff; --success-green: #28a745; --fail-red: #dc3545; --warn-orange: #fd7e14; --dark-grey: #343a40; --hell-purple: #4a0072; }
         body { font-family: "Microsoft JhengHei", sans-serif; background-color: #f8f9fa; padding: 20px; max-width: 600px; margin: auto; }
@@ -45,7 +45,7 @@
 <body>
 
     <div class="card">
-        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 成長系統 (地獄疊加版)</h1>
+        <h1 style="text-align: center; margin: 0 0 20px 0;">🎮 成長系統 (地獄修復版)</h1>
         <div class="status-container">
             <div class="status-box">
                 <span class="status-num" style="color: var(--success-green);" id="scoreDisplay">0</span>
@@ -62,15 +62,13 @@
         </div>
         
         <button class="btn-shop" onclick="reduceDifficulty()">🛡️ 消耗 300 積分：降低最高懲罰倍率 1%</button>
-        
         <button class="btn-draw" style="margin-top:10px;" onclick="drawTasks()">🎲 抽取今日任務</button>
-        
         <div id="statusMessage" style="text-align: center; font-size: 12px; color: #6f42c1; margin-top: 5px; font-weight: bold; min-height: 18px;"></div>
     </div>
 
     <div id="punishSection">
         <div class="punish-header">
-            <span>🚨 未完成的懲罰</span>
+            <span>🚨 待處理區 (懲罰 / 暫存地獄)</span>
             <span id="punishCount" style="font-size: 14px;">(0)</span>
         </div>
         <div id="activePunishList"></div>
@@ -92,9 +90,8 @@
 
     <div class="card" style="border: 1px solid var(--hell-purple);">
         <h2 style="color: var(--hell-purple); border-color: var(--hell-purple);">👿 地獄任務庫 (高風險)</h2>
-        <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">獎勵：50積分 | 失敗：+30 失敗數 (即 10 個懲罰)</p>
         <div class="input-area">
-            <input type="text" id="hellInput" placeholder="輸入地獄任務 (例: 跑 3000 公尺)">
+            <input type="text" id="hellInput" placeholder="輸入地獄任務">
             <button class="btn-hell" onclick="addToPool('hell')">新增</button>
         </div>
         <div id="hellPool" style="margin-top: 10px; max-height: 150px; overflow-y: auto;"></div>
@@ -109,7 +106,7 @@
                     <option value="count">計次</option>
                     <option value="time">計時</option>
                 </select>
-                <input type="text" id="punishName" placeholder="任務名稱 (例: 深蹲)">
+                <input type="text" id="punishName" placeholder="任務名稱">
             </div>
             <div class="input-row" id="punishValueRow" style="display:none;">
                 <input type="number" id="punishBase" class="input-small" placeholder="數值">
@@ -124,7 +121,7 @@
     </div>
 
     <div style="text-align: center; margin-bottom: 30px;">
-        <button class="btn-reset" onclick="resetSystem()">⚠️ 重置所有資料 (需確認)</button>
+        <button class="btn-reset" onclick="resetSystem()">⚠️ 重置所有資料</button>
     </div>
 
     <script>
@@ -159,18 +156,34 @@
         // --- 2. 核心邏輯 ---
 
         function drawTasks() {
-            // 防刷機制：檢查是否所有任務都已處理 (done 或 fail)
-            const hasPending = data.todayTasks.some(t => t.status === 'pending');
-            if (hasPending) {
-                return alert("⛔ 禁止重刷！\n你還有未完成的任務，必須全部設為【完成】或【失敗】後才能抽取新任務。");
+            // 防刷機制：只檢查「普通」任務是否全部處理完畢
+            // (地獄任務如果是 pending，不擋刷新，因為它會被移走)
+            const hasPendingNormal = data.todayTasks.some(t => t.status === 'pending' && t.type !== 'hell');
+            if (hasPendingNormal) {
+                return alert("⛔ 禁止重刷！\n普通任務必須全部設為【完成】或【失敗】後才能抽取新任務。");
             }
 
             if (data.normalPool.length < 3) return alert("一般任務庫至少需要 3 個任務！");
             
-            // 堆疊懲罰警告
-            if (data.activePunishments.length >= 2) {
+            // A. 將未完成的地獄任務移至暫存區
+            const pendingHellTasks = data.todayTasks.filter(t => t.status === 'pending' && t.type === 'hell');
+            if (pendingHellTasks.length > 0) {
+                pendingHellTasks.forEach(ht => {
+                    data.activePunishments.push({
+                        name: ht.cmd,
+                        display: `[地獄] ${ht.cmd}`,
+                        timestamp: new Date().getTime(),
+                        isHell: true // 標記為地獄任務
+                    });
+                });
+                alert(`⚠️ ${pendingHellTasks.length} 個未完成的地獄任務已移至待處理區。`);
+            }
+
+            // B. 懲罰堆疊判定 (排除地獄任務)
+            const realPunishments = data.activePunishments.filter(p => !p.isHell);
+            if (realPunishments.length >= 2) {
                 let msg = "⚠️ 累積太多懲罰！";
-                data.activePunishments.forEach(activeP => {
+                realPunishments.forEach(activeP => {
                     const poolItem = data.punishPool.find(p => p.name === activeP.name);
                     if (poolItem) {
                         poolItem.addedPercent += 1;
@@ -180,7 +193,7 @@
                 alert(msg);
             }
 
-            // --- 1. 先抽取一般的普通任務 ---
+            // C. 抽取新任務
             const shuffled = [...data.normalPool].sort(() => 0.5 - Math.random());
             let newTasks = shuffled.slice(0, 3).map(cmd => ({ 
                 cmd, 
@@ -188,28 +201,22 @@
                 type: 'normal' 
             }));
 
-            // --- 2. 判定是否觸發地獄任務 (疊加模式) ---
-            const rand = Math.random() * 100; // 0 ~ 99.99
+            // D. 地獄任務判定
+            const rand = Math.random() * 100;
             if (data.hellPool.length > 0 && rand < data.hellProbability) {
-                
                 const hellIdx = Math.floor(Math.random() * data.hellPool.length);
                 const hellTaskCmd = data.hellPool[hellIdx];
                 
-                // 建立地獄任務物件
-                const hellTask = { 
+                newTasks.unshift({ 
                     cmd: hellTaskCmd, 
                     status: 'pending', 
                     type: 'hell'
-                };
+                });
                 
-                // 插入到任務列表的最前方 (unshift)
-                newTasks.unshift(hellTask);
-                
-                alert(`👿 厄運降臨！\n除了今日任務外，你還額外抽到了地獄任務：\n【${hellTaskCmd}】\n\n(地獄機率重置為 0%)`);
-                data.hellProbability = 0; // 重置機率
+                alert(`👿 厄運降臨！\n額外抽到了地獄任務：\n【${hellTaskCmd}】\n\n(機率重置為 0%)`);
+                data.hellProbability = 0;
             }
             
-            // 更新今日任務列表
             data.todayTasks = newTasks;
             saveAndRender();
         }
@@ -222,29 +229,33 @@
             if (status === 'done') {
                 data.score += (task.type === 'hell' ? 50 : 10);
             } else {
-                // --- 失敗處理邏輯 ---
+                // 每日列表中的失敗處理
                 if (task.type === 'hell') {
-                    data.failCount += 30; // 地獄失敗 +30
+                    // 如果在每日列表中直接按失敗
+                    data.failCount += 30;
                     alert("💀 地獄任務失敗！\n失敗計數 +30 (將觸發 10 個懲罰)");
                 } else {
                     data.failCount++;
-                    // 一般任務失敗，增加地獄機率
                     data.hellProbability += 1; 
                 }
-
+                
                 // 檢查是否觸發懲罰
-                let triggeredCount = 0;
-                while (data.failCount >= 3) {
-                    triggerPunish(true); // 靜默模式
-                    data.failCount -= 3;
-                    triggeredCount++;
-                }
-
-                if (triggeredCount > 0) {
-                    alert(`❌ 已觸發 ${triggeredCount} 個懲罰任務！\n請查看上方未完成懲罰列表。`);
-                }
+                checkAndRunPunishmentLoop();
             }
             saveAndRender();
+        }
+
+        // 獨立出懲罰迴圈邏輯
+        function checkAndRunPunishmentLoop() {
+            let triggeredCount = 0;
+            while (data.failCount >= 3) {
+                triggerPunish(true); // silent=true
+                data.failCount -= 3;
+                triggeredCount++;
+            }
+            if (triggeredCount > 0) {
+                alert(`❌ 已觸發 ${triggeredCount} 個懲罰任務！\n請查看上方待處理區。`);
+            }
         }
 
         function triggerPunish(silent = false) {
@@ -280,19 +291,16 @@
                 let multiplier = 1 + (task.addedPercent / 100);
                 finalValue = Math.round(task.base * multiplier);
                 displayStr = `${task.name} ${finalValue} ${task.unit}`;
-                
                 task.addedPercent += 5;
                 if (!silent) alertMsg = `\n(此任務下次基礎倍率變為 ${100 + task.addedPercent}%)`;
-
-                if (data.forceNumericNext) {
-                    data.forceNumericNext = false;
-                }
+                if (data.forceNumericNext) data.forceNumericNext = false;
             }
 
             data.activePunishments.push({
                 name: task.name,
                 display: displayStr,
-                timestamp: new Date().getTime()
+                timestamp: new Date().getTime(),
+                isHell: false // 標記為懲罰 (不可失敗)
             });
 
             if (!silent) {
@@ -300,8 +308,31 @@
             }
         }
 
-        function completePunish(index) {
+        // 完成待處理區的任務
+        function completeActive(index) {
+            const item = data.activePunishments[index];
+            if (item.isHell) {
+                data.score += 50;
+                alert("🎉 恭喜完成暫存的地獄任務！積分 +50");
+            }
             data.activePunishments.splice(index, 1);
+            saveAndRender();
+        }
+
+        // --- 新增：待處理區的地獄任務失敗 ---
+        function failActiveHell(index) {
+            if (!confirm("⚠️ 嚴重警告 ⚠️\n\n確定要放棄這個地獄任務嗎？\n這將導致【失敗累積 +30】，並立即觸發大量懲罰！")) {
+                return;
+            }
+
+            // 移除該任務
+            data.activePunishments.splice(index, 1);
+            
+            // 執行懲罰邏輯
+            data.failCount += 30;
+            alert("💀 地獄任務確認失敗！\n系統正在計算懲罰...");
+            checkAndRunPunishmentLoop(); // 觸發迴圈
+            
             saveAndRender();
         }
 
@@ -324,11 +355,9 @@
         }
 
         function resetSystem() {
-            if (confirm("⚠️ 警告：確定要重置所有資料嗎？\n所有的積分、任務庫、懲罰倍率都會消失！")) {
-                if (confirm("⚠️ 再次確認：這項操作無法復原。\n\n真的要刪除並重新開始嗎？")) {
-                    localStorage.clear();
-                    location.reload();
-                }
+            if (confirm("⚠️ 警告：確定要重置所有資料嗎？")) {
+                localStorage.clear();
+                location.reload();
             }
         }
 
@@ -382,7 +411,6 @@
             const valRow = document.getElementById('punishValueRow');
             const btnRow = document.getElementById('punishBtnRow');
             const unitInput = document.getElementById('punishUnit');
-
             if (type === 'other') {
                 valRow.style.display = 'none';
                 btnRow.style.display = 'flex';
@@ -419,29 +447,34 @@
             document.getElementById('failDisplay').innerText = data.failCount + " / 3";
             document.getElementById('hellProbDisplay').innerText = data.hellProbability + "%";
 
-            const statusMsg = document.getElementById('statusMessage');
-            if (data.forceNumericNext) {
-                statusMsg.innerHTML = "⚡ 詛咒生效中：下次懲罰限定為【計時】或【計次】任務";
-            } else {
-                statusMsg.innerHTML = "";
-            }
-
+            // 待處理區 (Punishment Section)
             const punishSection = document.getElementById('punishSection');
             const punishListDiv = document.getElementById('activePunishList');
             document.getElementById('punishCount').innerText = `(${data.activePunishments.length})`;
 
             if (data.activePunishments.length > 0) {
                 punishSection.style.display = 'block';
-                punishListDiv.innerHTML = data.activePunishments.map((p, i) => `
-                    <div class="item" style="border-color: #ffcccc;">
-                        <span style="font-weight:bold; color: #a00;">${p.display}</span>
-                        <button class="btn-ok" onclick="completePunish(${i})">完成</button>
+                punishListDiv.innerHTML = data.activePunishments.map((p, i) => {
+                    // 區分真正的懲罰(紅)與地獄暫存(紫)
+                    const textColor = p.isHell ? 'var(--hell-purple)' : '#a00';
+                    const borderColor = p.isHell ? 'var(--hell-purple)' : '#ffcccc';
+                    const icon = p.isHell ? '👿' : '💀';
+                    const label = p.isHell ? '' : ''; // 已在 display 中包含
+
+                    return `
+                    <div class="item" style="border: 1px solid ${borderColor}; padding: 10px; border-radius: 6px; margin-bottom: 5px; background: white;">
+                        <span style="font-weight:bold; color: ${textColor};">${icon} ${p.display}</span>
+                        <div>
+                            <button class="btn-ok" onclick="completeActive(${i})">完成</button>
+                            ${p.isHell ? `<button class="btn-no" onclick="failActiveHell(${i})">失敗</button>` : ''}
+                        </div>
                     </div>
-                `).join('');
+                `}).join('');
             } else {
                 punishSection.style.display = 'none';
             }
 
+            // 今日任務 (Today List)
             const todayDiv = document.getElementById('todayList');
             if (data.todayTasks.length === 0) {
                 todayDiv.innerHTML = "尚未抽取任務";
@@ -449,12 +482,12 @@
                 todayDiv.innerHTML = data.todayTasks.map((t, i) => {
                     const isHell = t.type === 'hell';
                     const itemClass = isHell ? 'item item-hell' : 'item';
-                    const icon = isHell ? '👿' : '';
+                    const icon = isHell ? '👿 ' : '';
                     
                     return `
                     <div class="${itemClass}">
                         <span class="task-text" style="${t.status !== 'pending' ? 'text-decoration: line-through; color: #999;' : ''}">
-                            ${icon} ${t.cmd}
+                            ${icon}${t.cmd}
                         </span>
                         ${t.status === 'pending' ? `
                             <button class="btn-ok" onclick="updateTaskStatus(${i}, 'done')">完成</button>
